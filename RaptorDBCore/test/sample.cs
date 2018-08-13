@@ -3,6 +3,7 @@
 // ref : ..\faker.dll
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -26,14 +27,13 @@ namespace rdbtest
     {
         public SalesInvoice()
         {
-            ID = Guid.NewGuid();
         }
 
-        public Guid ID { get; set; }
+        public Guid ID { get; set; } = Guid.NewGuid();
         public string CustomerName { get; set; }
         public string NoCase { get; set; }
         public string Address { get; set; }
-        public List<LineItem> Items { get; set; }
+        public List<LineItem> Items { get; set; } = new List<LineItem>();
         public DateTime Date { get; set; }
         public int Serial { get; set; }
         public byte Status { get; set; }
@@ -83,6 +83,12 @@ namespace rdbtest
 
     class Program
     {
+        private const int   NumLineItems       = 5;
+        private const int   NumOfInvoices      = 100_000;
+        private static bool ShareInvoiceObject = false;
+
+        private static SalesInvoice sharedInvoice = null;
+
         static RaptorDB.RaptorDB rdb; // 1 instance
 
         static void Main(string[] args)
@@ -106,20 +112,24 @@ namespace rdbtest
             long c = rdb.DocumentCount();
             if (c > 0) // not the first time running
             {
+                Stopwatch sw = Stopwatch.StartNew();
                 var result = rdb.Query<SalesInvoiceViewRowSchema>(x => x.Serial < 100);
+                sw.Stop();
+
                 // show the rows
                 Console.WriteLine(fastJSON.JSON.ToNiceJSON(result.Rows, new fastJSON.JSONParameters { UseExtensions = false, UseFastGuid = false }));
                 // show the count
-                Console.WriteLine("Query result count = " + result.Count);
+                Console.WriteLine($"Query result count = {result.Count:N0} took {sw.Elapsed}");
                 return;
             }
 
-            Console.Write("Inserting 100,000 documents...");
-            int count = 100000;
+            Console.Write($"Inserting {NumOfInvoices} documents...");
 
+            int count = NumOfInvoices;
+            SalesInvoice inv;
             for (int i = 0; i < count; i++)
-            {                
-                var inv = CreateInvoice(i);
+            {
+                inv = CreateInvoice(i);
 
                 // save here
                 rdb.Save(inv.ID, inv);
@@ -131,20 +141,39 @@ namespace rdbtest
         static SalesInvoice CreateInvoice(int counter)
         {
             // new invoice
-            var inv = new SalesInvoice()
+            SalesInvoice inv;
+            if (ShareInvoiceObject)
             {
-                Date = Faker.DateTimeFaker.BirthDay(),
-                Serial = counter % 10000,
-                CustomerName = Faker.NameFaker.Name(),
-                NoCase = "Me " + counter % 10,
-                Status = (byte)(counter % 4),
-                Address = Faker.LocationFaker.Street(),
-                Approved = counter % 100 == 0 ? true : false
-            };
+                sharedInvoice = sharedInvoice ?? NewInvoice();
+                inv = sharedInvoice;
+            }
+            else
+                inv = NewInvoice();
+
+            inv.ID           = Guid.NewGuid();
+            inv.Date         = Faker.DateTimeFaker.BirthDay();
+            inv.Serial       = counter % 10000;
+            inv.CustomerName = Faker.NameFaker.Name();
+            inv.NoCase       = "Me " + counter % 10;
+            inv.Status       = (byte)(counter % 4);
+            inv.Address      = Faker.LocationFaker.Street();
+            inv.Approved     = counter % 100 == 0 ? true : false;
+
+            return inv;
+        }
+
+        private static SalesInvoice NewInvoice()
+        {
+            var inv = new SalesInvoice();
             // new line items
             inv.Items = new List<LineItem>();
-            for (int k = 0; k < 5; k++)
-                inv.Items.Add(new LineItem() { Product = "prod " + k, Discount = 0, Price = 10 + k, QTY = 1 + k });
+            for (int k = 0; k < NumLineItems; k++)
+                inv.Items.Add(new LineItem() {
+                    Product  = "prod " + k,
+                    Discount = 0,
+                    Price    = 10 + k,
+                    QTY      = 1 + k
+                });
 
             return inv;
         }

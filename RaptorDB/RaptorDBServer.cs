@@ -5,6 +5,7 @@ using RaptorDB.Common;
 using System.Reflection;
 using System.IO;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
 
 namespace RaptorDB
 {
@@ -19,9 +20,9 @@ namespace RaptorDB
         public RaptorDB rdb;
         public DateTime lastUsed = DateTime.MinValue;
         public bool hasExtensions = false;
-        public SafeDictionary<Type, MethodInfo> saveCache = new SafeDictionary<Type, MethodInfo>();
-        public SafeDictionary<string, ServerSideFunc> ssideCache = new SafeDictionary<string, ServerSideFunc>();
-        public SafeDictionary<string, ServerSideFuncWithArgs> sswcideCache = new SafeDictionary<string, ServerSideFuncWithArgs>();
+        public ConcurrentDictionary<Type, MethodInfo> saveCache = new ConcurrentDictionary<Type, MethodInfo>();
+        public ConcurrentDictionary<string, ServerSideFunc> ssideCache = new ConcurrentDictionary<string, ServerSideFunc>();
+        public ConcurrentDictionary<string, ServerSideFuncWithArgs> sswcideCache = new ConcurrentDictionary<string, ServerSideFuncWithArgs>();
     }
 
     public class RaptorDBServer
@@ -52,7 +53,7 @@ namespace RaptorDB
                     i.dbpath = d;
                     if (Directory.Exists(d + _S + "Extensions"))
                         i.hasExtensions = true;
-                    _instances.Add(dn.Name.ToLower(), i);
+                    _instances.TryAdd(dn.Name.ToLower(), i);
                 }
             }
             _defaultInstance.rdb = RaptorDB.Open(DataPath);
@@ -93,9 +94,9 @@ namespace RaptorDB
                             r.Initialized = false;
                             r.register = null;
                             r.save = null;
-                            r.saveCache = new SafeDictionary<Type, MethodInfo>();
-                            r.ssideCache = new SafeDictionary<string, ServerSideFunc>();
-                            r.sswcideCache = new SafeDictionary<string, ServerSideFuncWithArgs>();
+                            r.saveCache = new ConcurrentDictionary<Type, MethodInfo>();
+                            r.ssideCache = new ConcurrentDictionary<string, ServerSideFunc>();
+                            r.sswcideCache = new ConcurrentDictionary<string, ServerSideFuncWithArgs>();
                             r.rdb = null;
 
                             freed = true;
@@ -113,7 +114,7 @@ namespace RaptorDB
         }
 
         private bool _multiInstance = false;
-        private SafeDictionary<string, instance_handler> _instances = new SafeDictionary<string, instance_handler>();
+        private ConcurrentDictionary<string, instance_handler> _instances = new ConcurrentDictionary<string, instance_handler>();
         private instance_handler _defaultInstance = new instance_handler();
 
         private string _S = Path.DirectorySeparatorChar.ToString();
@@ -125,16 +126,16 @@ namespace RaptorDB
         //private RaptorDB _raptor;
         //private MethodInfo register = null;
         //private MethodInfo save = null;
-        //private SafeDictionary<Type, MethodInfo> _savecache = new SafeDictionary<Type, MethodInfo>();
-        //private SafeDictionary<string, ServerSideFunc> _ssidecache = new SafeDictionary<string, ServerSideFunc>();
-        //private SafeDictionary<string, ServerSideFuncWithArgs> _sswcidecache = new SafeDictionary<string, ServerSideFuncWithArgs>();
+        //private ConcurrentDictionary<Type, MethodInfo> _savecache = new ConcurrentDictionary<Type, MethodInfo>();
+        //private ConcurrentDictionary<string, ServerSideFunc> _ssidecache = new ConcurrentDictionary<string, ServerSideFunc>();
+        //private ConcurrentDictionary<string, ServerSideFuncWithArgs> _sswcidecache = new ConcurrentDictionary<string, ServerSideFuncWithArgs>();
         private Dictionary<string, Handler> _handlers = new Dictionary<string, Handler>();
         private const string _RaptorDB_users_config = "RaptorDB-Users.config";
-        private SafeDictionary<Guid, bool> _connectedClients = new SafeDictionary<Guid, bool>();
+        private ConcurrentDictionary<Guid, bool> _connectedClients = new ConcurrentDictionary<Guid, bool>();
         private System.Timers.Timer _concleanuptimer;
         private System.Timers.Timer _unusedintsancetimer;
 
-        public int ConnectedClients { get { return _connectedClients.Count(); } }
+        public int ConnectedClients { get { return _connectedClients.Count; } }
 
         private Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs args) // FIX : handle instance??
         {
@@ -157,7 +158,7 @@ namespace RaptorDB
                 return m;
 
             m = _defaultInstance.save.MakeGenericMethod(new Type[] { type });
-            _defaultInstance.saveCache.Add(type, m);
+            _defaultInstance.saveCache.TryAdd(type, m);
             return m;
         }
 
@@ -198,11 +199,11 @@ namespace RaptorDB
                 return new ReturnPacket(false, "Authentication failed");
             if (p.Command == "_close")
             {
-                _connectedClients.Remove(p.ClientID);
+                _connectedClients.TryRemove(p.ClientID, out bool value);
                 return ret;
             }
             else
-                _connectedClients.Add(p.ClientID, true);
+                _connectedClients.TryAdd(p.ClientID, true);
 
             try
             {
@@ -560,7 +561,7 @@ namespace RaptorDB
                 Type tt = Type.GetType(type);
 
                 func = (ServerSideFuncWithArgs)Delegate.CreateDelegate(typeof(ServerSideFuncWithArgs), tt, method);
-                _defaultInstance.sswcideCache.Add(type + method, func);
+                _defaultInstance.sswcideCache.TryAdd(type + method, func);
             }
             return func;
         }
@@ -574,7 +575,7 @@ namespace RaptorDB
                 Type tt = Type.GetType(type);
 
                 func = (ServerSideFunc)Delegate.CreateDelegate(typeof(ServerSideFunc), tt, method);
-                _defaultInstance.ssideCache.Add(type + method, func);
+                _defaultInstance.ssideCache.TryAdd(type + method, func);
             }
             return func;
         }

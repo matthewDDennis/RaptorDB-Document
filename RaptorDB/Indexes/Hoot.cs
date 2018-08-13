@@ -4,6 +4,7 @@ using System.Text;
 using System.IO;
 using System.Text.RegularExpressions;
 using RaptorDB.Common;
+using System.Collections.Concurrent;
 
 namespace RaptorDB
 {
@@ -36,7 +37,7 @@ namespace RaptorDB
             LoadWords();
         }
         private ITokenizer _tokenizer;
-        private SafeDictionary<string, int> _words = new SafeDictionary<string, int>();
+        private ConcurrentDictionary<string, int> _words = new ConcurrentDictionary<string, int>();
         //private SafeSortedList<string, int> _words = new SafeSortedList<string, int>();
         private BitmapIndex _bitmaps;
         private BoolIndex _deleted;
@@ -50,14 +51,14 @@ namespace RaptorDB
         private bool _shutdowndone = false;
         private object _lock = new object();
 
-        public string[] Words
+        public IEnumerable<string> Words
         {
-            get { checkloaded(); return _words.Keys(); }
+            get { checkloaded(); return _words.Keys; }
         }
 
         public int WordCount
         {
-            get { checkloaded(); return _words.Count(); }
+            get { checkloaded(); return _words.Count; }
         }
 
         public int DocumentCount
@@ -242,7 +243,7 @@ namespace RaptorDB
 
                     // do wildcard search
                     Regex reg = new Regex("^" + word.Replace("*", ".*").Replace("?", ".") + "$", RegexOptions.IgnoreCase);
-                    foreach (string key in _words.Keys())
+                    foreach (string key in _words.Keys)
                     {
                         if (reg.IsMatch(key))
                         {
@@ -331,7 +332,7 @@ namespace RaptorDB
                 // save words and bitmaps
                 using (FileStream words = new FileStream(_Path + _FileName + ".words", FileMode.Create))
                 {
-                    foreach (string key in _words.Keys())
+                    foreach (string key in _words.Keys)
                     {
                         bw.Write(key);
                         bw.Write(_words[key]);
@@ -351,7 +352,7 @@ namespace RaptorDB
             lock (_lock)
             {
                 if (_words == null)
-                    _words = new SafeDictionary<string, int>();// new SafeSortedList<string, int>();
+                    _words = new ConcurrentDictionary<string, int>();// new SafeSortedList<string, int>();
                 if (File.Exists(_Path + _FileName + ".words") == false)
                     return;
                 // load words
@@ -364,14 +365,14 @@ namespace RaptorDB
                 while (s != "")
                 {
                     int off = br.ReadInt32();
-                    _words.Add(s, off);
+                    _words.TryAdd(s, off);
                     try
                     {
                         s = br.ReadString();
                     }
                     catch { s = ""; }
                 }
-                _log.Debug("Word Count = " + _words.Count());
+                _log.Debug("Word Count = " + _words.Count);
                 _wordschanged = true;
             }
         }
@@ -410,7 +411,7 @@ namespace RaptorDB
                 {
                     bmp = _bitmaps.GetFreeRecordNumber();
                     _bitmaps.SetDuplicate(bmp, recnum);
-                    _words.Add(key, bmp);
+                    _words.TryAdd(key, bmp);
                 }
             }
             _wordschanged = true;

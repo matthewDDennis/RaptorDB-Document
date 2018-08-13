@@ -3,6 +3,7 @@ using RaptorDB.Common;
 using System.IO;
 using System.IO.Compression;
 using System.Text.RegularExpressions;
+using System.Collections.Concurrent;
 
 namespace RaptorDB.Replication
 {
@@ -23,7 +24,7 @@ namespace RaptorDB.Replication
         private string _InboxPath;
         private string _OutboxPath;
         private int INTERNALLIMIT = Global.PackageSizeItemCountLimit;
-        private SafeDictionary<string, int> _branchLastDocs = new SafeDictionary<string, int>();
+        private ConcurrentDictionary<string, int> _branchLastDocs = new ConcurrentDictionary<string, int>();
 
 
         private void Initialize(string config)
@@ -50,7 +51,7 @@ namespace RaptorDB.Replication
                     i = Helper.ToInt32(File.ReadAllBytes(_Path + "Replication" + _S + b.BranchName + ".last"), 0);
                 Directory.CreateDirectory(_Path + "Replication" + _S + "Inbox" + _S + b.BranchName);
                 Directory.CreateDirectory(_Path + "Replication" + _S + "Outbox" + _S + b.BranchName);
-                _branchLastDocs.Add(b.BranchName.ToLower(), i);
+                _branchLastDocs.TryAdd(b.BranchName.ToLower(), i);
             }
 
             _server = new NetworkServer();
@@ -102,7 +103,7 @@ namespace RaptorDB.Replication
                         ret.OK = true;
                         File.Delete(_OutboxPath + _S + p.branchname + _S + p.filename);
                         // set last rec on hq
-                        _branchLastDocs.Add(p.branchname.ToLower(), p.lastrecord);
+                        _branchLastDocs.TryAdd(p.branchname.ToLower(), p.lastrecord);
                         WriteBranchCounters();
                         break;
                 }

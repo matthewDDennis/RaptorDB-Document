@@ -10,6 +10,7 @@ using RaptorDB.Common;
 using System.Threading;
 using fastJSON;
 using fastBinaryJSON;
+using System.Collections.Concurrent;
 
 namespace RaptorDB.Views
 {
@@ -55,8 +56,8 @@ namespace RaptorDB.Views
         private RowFill _rowfiller;
         private ViewRowDefinition _schema;
         private ViewRowDefinition _datecolumns;
-        private SafeDictionary<int, tran_data> _transactions = new SafeDictionary<int, tran_data>();
-        private SafeDictionary<string, int> _nocase = new SafeDictionary<string, int>();
+        private ConcurrentDictionary<int, tran_data> _transactions = new ConcurrentDictionary<int, tran_data>();
+        private ConcurrentDictionary<string, int> _nocase = new ConcurrentDictionary<string, int>();
         private Dictionary<string, byte> _idxlen = new Dictionary<string, byte>();
 
         private System.Timers.Timer _saveTimer;
@@ -69,7 +70,7 @@ namespace RaptorDB.Views
         private string _RaptorDBVersionFilename = "RaptorDB.version";
 
         // FIX : showing incorrect results
-        //private SafeDictionary<object, WAHBitArray> _queryCache = new SafeDictionary<object, WAHBitArray>();
+        //private ConcurrentDictionary<object, WAHBitArray> _queryCache = new ConcurrentDictionary<object, WAHBitArray>();
 
         private object _savetimerlock = new object();
         void _saveTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
@@ -201,13 +202,13 @@ namespace RaptorDB.Views
                 SaveAndIndex(data.rows);
             }
             // remove in memory data
-            _transactions.Remove(ID);
+            _transactions.TryRemove(ID, out tran_data value);
         }
 
         internal void RollBack(int ID)
         {
             // remove in memory data
-            _transactions.Remove(ID);
+            _transactions.TryRemove(ID, out tran_data value);
         }
 
         internal void Insert<T>(Guid guid, T doc)
@@ -282,7 +283,7 @@ namespace RaptorDB.Views
                 data = new tran_data();
                 data.docid = docid;
                 data.rows = api.emit;
-                _transactions.Add(Thread.CurrentThread.ManagedThreadId, data);
+                _transactions.TryAdd(Thread.CurrentThread.ManagedThreadId, data);
             }
 
             return true;
@@ -847,9 +848,9 @@ namespace RaptorDB.Views
                         _schema.Add(p.Name, t);
 
                     if (p.GetCustomAttributes(typeof(CaseInsensitiveAttribute), true).Length > 0)
-                        _nocase.Add(p.Name, 0);
+                        _nocase.TryAdd(p.Name, 0);
                     if (_view.CaseInsensitiveColumns.Contains(p.Name) || _view.CaseInsensitiveColumns.Contains(p.Name.ToLower()))
-                        _nocase.Add(p.Name, 0);
+                        _nocase.TryAdd(p.Name, 0);
 
                     var a = p.GetCustomAttributes(typeof(StringIndexLength), false);
                     if (a.Length > 0)
@@ -893,9 +894,9 @@ namespace RaptorDB.Views
                         _schema.Add(f.Name, t);
 
                     if (f.GetCustomAttributes(typeof(CaseInsensitiveAttribute), true).Length > 0)
-                        _nocase.Add(f.Name, 0);
+                        _nocase.TryAdd(f.Name, 0);
                     if (_view.CaseInsensitiveColumns.Contains(f.Name) || _view.CaseInsensitiveColumns.Contains(f.Name.ToLower()))
-                        _nocase.Add(f.Name, 0);
+                        _nocase.TryAdd(f.Name, 0);
 
                     var a = f.GetCustomAttributes(typeof(StringIndexLength), false);
                     if (a.Length > 0)
@@ -1251,7 +1252,7 @@ namespace RaptorDB.Views
             return ReturnRowsTyped<T>(ba, null, start, count, order, desc);
         }
 
-        private SafeDictionary<string, List<int>> _sortcache = new SafeDictionary<string, List<int>>();
+        private ConcurrentDictionary<string, List<int>> _sortcache = new ConcurrentDictionary<string, List<int>>();
 
         internal List<int> SortBy(string sortcol)
         {
@@ -1287,7 +1288,7 @@ namespace RaptorDB.Views
                     foreach (var i in bi)
                         sortlist.Add(i);
                 }
-                _sortcache.Add(col, sortlist);
+                _sortcache.TryAdd(col, sortlist);
             }
             _log.Debug("Sort column = " + col + ", time (ms) = " + FastDateTime.Now.Subtract(dt).TotalMilliseconds);
             return sortlist;
@@ -1382,13 +1383,13 @@ namespace RaptorDB.Views
         private void InvalidateCaches()
         {
             // invalidate sort cache
-            _sortcache = new SafeDictionary<string, List<int>>();
+            _sortcache = new ConcurrentDictionary<string, List<int>>();
             // inavidate query cache
-            //_queryCache = new SafeDictionary<object, WAHBitArray>(); // FIX : showing incorrect results
+            //_queryCache = new ConcurrentDictionary<object, WAHBitArray>(); // FIX : showing incorrect results
         }
 
         #region [ removed ]
-        //SafeDictionary<string, LambdaExpression> _lambdacache = new SafeDictionary<string, LambdaExpression>();
+        //ConcurrentDictionary<string, LambdaExpression> _lambdacache = new ConcurrentDictionary<string, LambdaExpression>();
         //internal Result<object> Query(string filter, int start, int count)
         //{
         //    return Query(filter, start, count, "");

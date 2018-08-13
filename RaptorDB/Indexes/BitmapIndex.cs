@@ -4,6 +4,8 @@ using System.IO;
 using RaptorDB.Common;
 using System.Threading;
 using RaptorDB;
+using System.Collections.Concurrent;
+using System.Linq;
 
 namespace RaptorDB
 {
@@ -11,10 +13,10 @@ namespace RaptorDB
     {
         public BitmapIndex(string path, string filename)
         {
-            if (Global.UseLessMemoryStructures)
-                _cache = new SafeSortedList<int, WAHBitArray>();
-            else
-                _cache = new SafeDictionary<int, WAHBitArray>();
+            //if (Global.UseLessMemoryStructures)
+            //    _cache = new SafeSortedList<int, WAHBitArray>();
+            //else
+                _cache = new ConcurrentDictionary<int, WAHBitArray>();
 
             _FileName = Path.GetFileNameWithoutExtension(filename);
             _Path = path;
@@ -50,8 +52,8 @@ namespace RaptorDB
         private BufferedStream _recordFileWrite;
         private long _lastBitmapOffset = 0;
         private int _lastRecordNumber = 0;
-        //private SafeDictionary<int, WAHBitArray> _cache = new SafeDictionary<int, WAHBitArray>();
-        private IKV<int, WAHBitArray> _cache = null;// new SafeSortedList<int, WAHBitArray>();
+        //private ConcurrentDictionary<int, WAHBitArray> _cache = new ConcurrentDictionary<int, WAHBitArray>();
+        private IDictionary<int, WAHBitArray> _cache = null;// new SafeSortedList<int, WAHBitArray>();
         private ILog log = LogManager.GetLogger(typeof(BitmapIndex));
         private bool _stopOperations = false;
         private bool _shutdownDone = false;
@@ -87,8 +89,7 @@ namespace RaptorDB
             using (new L(this))
             {
                 log.Debug("writing "+_FileName);
-                int[] keys = _cache.Keys();
-                Array.Sort(keys);
+                int[] keys = _cache.Keys.OrderBy(x => x).ToArray();
 
                 foreach (int k in keys)
                 {
@@ -103,10 +104,10 @@ namespace RaptorDB
                 Flush();
                 if (freeMemory)
                 {
-                    if (Global.UseLessMemoryStructures)
-                        _cache = new SafeSortedList<int, WAHBitArray>();
-                    else
-                        _cache = new SafeDictionary<int, WAHBitArray>();
+                    //if (Global.UseLessMemoryStructures)
+                    //    _cache = new SafeSortedList<int, WAHBitArray>();
+                    //else
+                        _cache = new ConcurrentDictionary<int, WAHBitArray>();
                     log.Debug("  freeing cache");
                 }
                 _isDirty = false;
@@ -194,13 +195,12 @@ namespace RaptorDB
             try
             {
                 List<int> free = new List<int>();
-                foreach (var k in _cache.Keys())
+                foreach (var k in _cache.Keys)
                 {
-                    var val =_cache.GetValue(k);
-                    if (val.isDirty == false)
+                    if (_cache.TryGetValue(k, out WAHBitArray val) && val.isDirty == false)
                         free.Add(k);
                 }
-                log.Info("releasing bmp count = " + free.Count + " out of " + _cache.Count());
+                log.Info("releasing bmp count = " + free.Count + " out of " + _cache.Count);
                 foreach (int i in free)
                     _cache.Remove(i);
             }

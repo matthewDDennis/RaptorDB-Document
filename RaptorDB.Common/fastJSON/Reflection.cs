@@ -7,6 +7,7 @@ using System.Text;
 using System.Runtime.Serialization;
 using RaptorDB.Common;
 using System.Linq;
+using System.Collections.Concurrent;
 #if !SILVERLIGHT
 using System.Data;
 #endif
@@ -85,13 +86,13 @@ namespace fastJSON
         public delegate object GenericGetter(object obj);
         private delegate object CreateObject();
 
-        private SafeDictionary<Type, string> _tyname = new SafeDictionary<Type, string>();
-        private SafeDictionary<string, Type> _typecache = new SafeDictionary<string, Type>();
-        private SafeDictionary<Type, CreateObject> _constrcache = new SafeDictionary<Type, CreateObject>();
-        private SafeDictionary<Type, Getters[]> _getterscache = new SafeDictionary<Type, Getters[]>();
-        private SafeDictionary<string, Dictionary<string, myPropInfo>> _propertycache = new SafeDictionary<string, Dictionary<string, myPropInfo>>();
-        private SafeDictionary<Type, Type[]> _genericTypes = new SafeDictionary<Type, Type[]>();
-        private SafeDictionary<Type, Type> _genericTypeDef = new SafeDictionary<Type, Type>();
+        private ConcurrentDictionary<Type, string> _tyname = new ConcurrentDictionary<Type, string>();
+        private ConcurrentDictionary<string, Type> _typecache = new ConcurrentDictionary<string, Type>();
+        private ConcurrentDictionary<Type, CreateObject> _constrcache = new ConcurrentDictionary<Type, CreateObject>();
+        private ConcurrentDictionary<Type, Getters[]> _getterscache = new ConcurrentDictionary<Type, Getters[]>();
+        private ConcurrentDictionary<string, Dictionary<string, myPropInfo>> _propertycache = new ConcurrentDictionary<string, Dictionary<string, myPropInfo>>();
+        private ConcurrentDictionary<Type, Type[]> _genericTypes = new ConcurrentDictionary<Type, Type[]>();
+        private ConcurrentDictionary<Type, Type> _genericTypeDef = new ConcurrentDictionary<Type, Type>();
 
         #region bjson custom types
         internal UnicodeEncoding unicode = new UnicodeEncoding();
@@ -100,8 +101,8 @@ namespace fastJSON
 
         #region json custom types
         // JSON custom
-        internal SafeDictionary<Type, Serialize> _customSerializer = new SafeDictionary<Type, Serialize>();
-        internal SafeDictionary<Type, Deserialize> _customDeserializer = new SafeDictionary<Type, Deserialize>();
+        internal ConcurrentDictionary<Type, Serialize> _customSerializer = new ConcurrentDictionary<Type, Serialize>();
+        internal ConcurrentDictionary<Type, Deserialize> _customDeserializer = new ConcurrentDictionary<Type, Deserialize>();
 
         internal object CreateCustom(string v, Type type)
         {
@@ -114,8 +115,8 @@ namespace fastJSON
         {
             if (type != null && serializer != null && deserializer != null)
             {
-                _customSerializer.Add(type, serializer);
-                _customDeserializer.Add(type, deserializer);
+                _customSerializer.TryAdd(type, serializer);
+                _customDeserializer.TryAdd(type, deserializer);
                 // reset property cache
                 Instance.ResetPropertyCache();
             }
@@ -138,7 +139,7 @@ namespace fastJSON
             else
             {
                 tt = t.GetGenericTypeDefinition();
-                _genericTypeDef.Add(t, tt);
+                _genericTypeDef.TryAdd(t, tt);
                 return tt;
             } 
         }
@@ -151,7 +152,7 @@ namespace fastJSON
             else
             {
                 tt = t.GetGenericArguments();
-                _genericTypes.Add(t, tt);
+                _genericTypes.TryAdd(t, tt);
                 return tt;
             }
         }
@@ -220,7 +221,7 @@ namespace fastJSON
                     }
                 }
 
-                _propertycache.Add(typename, sd);
+                _propertycache.TryAdd(typename, sd);
                 return sd;
             }
         }
@@ -300,7 +301,7 @@ namespace fastJSON
             else
             {
                 string s = t.AssemblyQualifiedName;
-                _tyname.Add(t, s);
+                _tyname.TryAdd(t, s);
                 return s;
             }
         }
@@ -319,7 +320,7 @@ namespace fastJSON
                         return AppDomain.CurrentDomain.GetAssemblies().Where(z => z.FullName == name.FullName).FirstOrDefault();
                     }, null, true);
                 }
-                _typecache.Add(typename, t);
+                _typecache.TryAdd(typename, t);
                 return t;
             }
         }
@@ -342,7 +343,7 @@ namespace fastJSON
                         ilGen.Emit(OpCodes.Newobj, objtype.GetConstructor(Type.EmptyTypes));
                         ilGen.Emit(OpCodes.Ret);
                         c = (CreateObject)dynMethod.CreateDelegate(typeof(CreateObject));
-                        _constrcache.Add(objtype, c);
+                        _constrcache.TryAdd(objtype, c);
                     }
                     else // structs
                     {
@@ -355,7 +356,7 @@ namespace fastJSON
                         ilGen.Emit(OpCodes.Box, objtype);
                         ilGen.Emit(OpCodes.Ret);
                         c = (CreateObject)dynMethod.CreateDelegate(typeof(CreateObject));
-                        _constrcache.Add(objtype, c);
+                        _constrcache.TryAdd(objtype, c);
                     }
                     return c();
                 }
@@ -629,7 +630,7 @@ namespace fastJSON
                 }
             }
             val = getters.ToArray();
-            _getterscache.Add(type, val);
+            _getterscache.TryAdd(type, val);
             return val;
         }
 
@@ -653,18 +654,18 @@ namespace fastJSON
 
         internal void ResetPropertyCache()
         {
-            _propertycache = new SafeDictionary<string, Dictionary<string, myPropInfo>>();
+            _propertycache = new ConcurrentDictionary<string, Dictionary<string, myPropInfo>>();
         }
 
         internal void ClearReflectionCache()
         {
-            _tyname = new SafeDictionary<Type, string>();
-            _typecache = new SafeDictionary<string, Type>();
-            _constrcache = new SafeDictionary<Type, CreateObject>();
-            _getterscache = new SafeDictionary<Type, Getters[]>();
-            _propertycache = new SafeDictionary<string, Dictionary<string, myPropInfo>>();
-            _genericTypes = new SafeDictionary<Type, Type[]>();
-            _genericTypeDef = new SafeDictionary<Type, Type>();
+            _tyname = new ConcurrentDictionary<Type, string>();
+            _typecache = new ConcurrentDictionary<string, Type>();
+            _constrcache = new ConcurrentDictionary<Type, CreateObject>();
+            _getterscache = new ConcurrentDictionary<Type, Getters[]>();
+            _propertycache = new ConcurrentDictionary<string, Dictionary<string, myPropInfo>>();
+            _genericTypes = new ConcurrentDictionary<Type, Type[]>();
+            _genericTypeDef = new ConcurrentDictionary<Type, Type>();
         }
     }
 }

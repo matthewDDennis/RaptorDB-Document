@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using RaptorDB.Common;
 
 namespace RaptorDB
@@ -40,7 +42,7 @@ namespace RaptorDB
         {
             DiskPageNumber = -1;
             RightPageNumber = -1;
-            tree = new SafeDictionary<T, KeyInfo>(Global.PageItemCount);
+            tree = new ConcurrentDictionary<T, KeyInfo>(8, Global.PageItemCount);
             isDirty = false;
             FirstKey = default(T);
         }
@@ -48,7 +50,7 @@ namespace RaptorDB
         public int RightPageNumber;
         public T FirstKey;
         public bool isDirty;
-        public SafeDictionary<T, KeyInfo> tree;
+        public ConcurrentDictionary<T, KeyInfo> tree;
         public List<int> allocblocks = null; // for string keys in HF key store
     }
 
@@ -59,8 +61,8 @@ namespace RaptorDB
         ILog _log = LogManager.GetLogger(typeof(MGIndex<T>));
         private SafeSortedList<T, PageInfo> _pageList = new SafeSortedList<T, PageInfo>();
 
-        //private SafeDictionary<int, Page<T>> _cache = new SafeDictionary<int, Page<T>>();
-        private IKV<int, Page<T>> _cache = null;//new SafeSortedList<int, Page<T>>();
+        //private ConcurrentDictionary<int, Page<T>> _cache = new ConcurrentDictionary<int, Page<T>>();
+        private ConcurrentDictionary<int, Page<T>> _cache = null;//new SafeSortedList<int, Page<T>>();
 
         private List<int> _pageListDiskPages = new List<int>();
         private IndexFile<T> _index;
@@ -69,10 +71,10 @@ namespace RaptorDB
 
         public MGIndex(string path, string filename, byte keysize, bool allowdups)
         {
-            if (Global.UseLessMemoryStructures)
-                _cache = new SafeSortedList<int, Page<T>>();
-            else
-                _cache = new SafeDictionary<int, Page<T>>();
+            //if (Global.UseLessMemoryStructures)
+            //    _cache = new SafeSortedList<int, Page<T>>();
+            //else
+                _cache = new ConcurrentDictionary<int, Page<T>>();
 
             _AllowDuplicates = allowdups;
             if (path.EndsWith(Path.DirectorySeparatorChar.ToString()) == false)
@@ -88,7 +90,7 @@ namespace RaptorDB
                 page.DiskPageNumber = _index.GetNewPageNumber();
                 page.isDirty = true;
                 _pageList.Add(page.FirstKey, new PageInfo(page.DiskPageNumber, 0, 0));
-                _cache.Add(page.DiskPageNumber, page);
+                _cache.TryAdd(page.DiskPageNumber, page);
             }
         }
 
@@ -116,8 +118,7 @@ namespace RaptorDB
 
             // from key page
             Page<T> page = LoadPage(_pageList.GetValue(startpos).PageNumber);
-            T[] keys = page.tree.Keys();
-            Array.Sort(keys);
+            T[] keys = page.tree.Keys.OrderBy(x => x).ToArray();
 
             // find better start position rather than 0
             int pos = Array.BinarySearch<T>(keys, from); // FEATURE : rewrite??
@@ -143,8 +144,8 @@ namespace RaptorDB
             {
                 // to key page
                 page = LoadPage(_pageList.GetValue(endpos).PageNumber);
-                keys = page.tree.Keys();
-                Array.Sort(keys);
+                keys = page.tree.Keys.OrderBy(x => x).ToArray();
+
                 // find better end position rather than last key
                 pos = Array.BinarySearch<T>(keys, to);
                 if (pos < 0) pos = ~pos;
@@ -214,7 +215,7 @@ namespace RaptorDB
                     if (_AllowDuplicates)
                         SaveDuplicate(key, ref ki);
                     pi.UniqueCount++;
-                    page.tree.Add(key, ki);
+                    page.tree.TryAdd(key, ki);
                 }
 
                 if (page.tree.Count() > Global.PageItemCount)
@@ -241,13 +242,12 @@ namespace RaptorDB
         {
             //_log.Debug("Total split time (s) = " + _totalsplits);
             //_log.Debug("Total pages = " + _pageList.Count);
-            int[] keys = _cache.Keys();
-            Array.Sort(keys);
+            int[] keys = _cache.Keys.OrderBy(x => x).ToArray();
+
             // save index to disk
             foreach (var i in keys)
             {
-                var p = _cache.GetValue(i);
-                if (p.isDirty)
+                if (_cache.TryGetValue(i, out Page<T> p) && p.isDirty)
                 {
                     _index.SavePage(p);
                     p.isDirty = false;
@@ -272,15 +272,14 @@ namespace RaptorDB
             try
             {
                 List<int> free = new List<int>();
-                foreach (var k in _cache.Keys())
+                foreach (var k in _cache.Keys)
                 {
-                    var val = _cache.GetValue(k);
-                    if (val.isDirty == false)
+                    if (_cache.TryGetValue(k, out Page<T> val) && val.isDirty == false)
                         free.Add(k);
                 }
                 _log.Info("releasing page count = " + free.Count + " out of " + _cache.Count());
                 foreach (var i in free)
-                    _cache.Remove(i);
+                    _cache.TryRemove(i, out Page<T> value);
             }
             catch { }
         }
@@ -309,7 +308,7 @@ namespace RaptorDB
         {
             PageInfo pi;
             Page<T> page = LoadPage(key, out pi);
-            bool b = page.tree.Remove(key);
+            bool b = page.tree.TryRemove(key, out KeyInfo value);
             // TODO : reset the first key for page ??
             if (b)
             {
@@ -334,8 +333,7 @@ namespace RaptorDB
             }
             // key page
             Page<T> page = LoadPage(_pageList.GetValue(pos).PageNumber);
-            T[] keys = page.tree.Keys();
-            Array.Sort(keys);
+            T[] keys = page.tree.Keys.OrderBy(x=> x).ToArray();
 
             // find better start position rather than 0
             pos = Array.BinarySearch<T>(keys, key);
@@ -368,8 +366,8 @@ namespace RaptorDB
             }
             // key page
             Page<T> page = LoadPage(_pageList.GetValue(pos).PageNumber);
-            T[] keys = page.tree.Keys();
-            Array.Sort(keys);
+            T[] keys = page.tree.Keys.OrderBy(x => x).ToArray(); ;
+
             // find better end position rather than last key
             pos = Array.BinarySearch<T>(keys, key);
             if (pos < 0) pos = ~pos;
@@ -415,8 +413,8 @@ namespace RaptorDB
         private void doPageOperation(ref WAHBitArray res, int pageidx)
         {
             Page<T> page = LoadPage(_pageList.GetValue(pageidx).PageNumber);
-            T[] keys = page.tree.Keys(); // avoid sync issues
-            foreach (var k in keys)
+
+            foreach (var k in page.tree.Keys)
             {
                 int bn = page.tree[k].DuplicateBitmapNumber;
 
@@ -437,14 +435,14 @@ namespace RaptorDB
             page.RightPageNumber = newpage.DiskPageNumber;
             _pageList.Remove(page.FirstKey);
             // get and sort keys
-            T[] keys = page.tree.Keys();
-            Array.Sort<T>(keys);
+            T[] keys = page.tree.Keys.OrderBy(x => x).ToArray();
+
             // copy data to new 
             for (int i = keys.Length / 2; i < keys.Length; i++)
             {
-                newpage.tree.Add(keys[i], page.tree[keys[i]]);
+                newpage.tree.TryAdd(keys[i], page.tree[keys[i]]);
                 // remove from old page
-                page.tree.Remove(keys[i]);
+                page.tree.TryRemove(keys[i], out KeyInfo value);
             }
             // set the first key
             newpage.FirstKey = keys[keys.Length / 2]; // new key
@@ -454,7 +452,7 @@ namespace RaptorDB
             // re add to page list
             _pageList.Add(page.FirstKey, new PageInfo(page.DiskPageNumber, page.tree.Count(), 0));
             _pageList.Add(newpage.FirstKey, new PageInfo(newpage.DiskPageNumber, newpage.tree.Count(), 0));
-            _cache.Add(newpage.DiskPageNumber, newpage);
+            _cache.TryAdd(newpage.DiskPageNumber, newpage);
 
             _totalsplits += FastDateTime.Now.Subtract(dt).TotalSeconds;
         }
@@ -476,7 +474,7 @@ namespace RaptorDB
             {
                 //load page from disk
                 page = _index.LoadPageFromPageNumber(pagenum);
-                _cache.Add(pagenum, page);
+                _cache.TryAdd(pagenum, page);
             }
             return page;
         }
@@ -488,7 +486,7 @@ namespace RaptorDB
             {
                 //load page from disk
                 page = _index.LoadPageFromPageNumber(pagenum);
-                _cache.Add(pagenum, page);
+                _cache.TryAdd(pagenum, page);
             }
             return page;
         }
@@ -541,7 +539,7 @@ namespace RaptorDB
             for (int i = 0; i < _pageList.Count(); i++)
             {
                 Page<T> page = LoadPage(_pageList.GetValue(i).PageNumber);
-                foreach (var k in page.tree.Keys())
+                foreach (var k in page.tree.Keys)
                     keys.Add(k);
             }
             return keys.ToArray();

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using RaptorDB.Common;
 using System.Threading;
+using System.Linq;
 
 namespace RaptorDB
 {
@@ -311,14 +312,14 @@ namespace RaptorDB
 
                 SeekPage(pnum);
                 byte[] page = new byte[_PageLength];
-                byte[] blockheader = CreateBlockHeader(0, (ushort)node.tree.Count(), node.RightPageNumber);
+                byte[] blockheader = CreateBlockHeader(0, (ushort)node.tree.Count, node.RightPageNumber);
                 Buffer.BlockCopy(blockheader, 0, page, 0, blockheader.Length);
 
                 int index = blockheader.Length;
                 int i = 0;
                 byte[] b = null;
-                T[] keys = node.tree.Keys();
-                Array.Sort(keys); // sort keys on save for read performance
+                T[] keys = node.tree.Keys.OrderBy(x => x).ToArray();
+
                 int blocknum = 0;
                 if (_externalStrings)
                 {
@@ -403,7 +404,7 @@ namespace RaptorDB
                         }
                         int offset = Helper.ToInt32(b, idx + 1 + _maxKeySize);
                         int duppage = Helper.ToInt32(b, idx + 1 + _maxKeySize + 4);
-                        page.tree.Add(key, new KeyInfo(offset, duppage));
+                        page.tree.TryAdd(key, new KeyInfo(offset, duppage));
                     }
                     return page;
                 }

@@ -1,5 +1,6 @@
 ﻿using RaptorDB.Common;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -66,7 +67,7 @@ namespace RaptorDB
         private string _S = Path.DirectorySeparatorChar.ToString();
         private RaptorDB _rdb;
         private string _path;
-        private SafeDictionary<string, RDBRoute> _routing = new SafeDictionary<string, RDBRoute>();
+        private ConcurrentDictionary<string, RDBRoute> _routing = new ConcurrentDictionary<string, RDBRoute>();
         //private KeyStore<Guid> _jsonstore;
 
 
@@ -80,7 +81,7 @@ namespace RaptorDB
         public void AddRoute(RDBRoute route)
         {
             _log.Debug("adding route : " + route.URL);
-            _routing.Add(route.URL.ToLower(), route);
+            _routing.TryAdd(route.URL.ToLower(), route);
         }
 
         public void RegisterView<T>(View<T> view)

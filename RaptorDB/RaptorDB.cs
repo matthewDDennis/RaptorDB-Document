@@ -11,6 +11,7 @@ using System.IO.Compression;
 using System.CodeDom.Compiler;
 using System.Text.RegularExpressions;
 using System.ComponentModel;
+using System.Collections.Concurrent;
 
 // ----- Feature list -------
 // TODO : enum in row schema support
@@ -79,8 +80,8 @@ namespace RaptorDB
         private MethodInfo otherviews = null;
         private MethodInfo save = null;
         private MethodInfo saverep = null;
-        private SafeDictionary<Type, MethodInfo> _savecache = new SafeDictionary<Type, MethodInfo>();
-        private SafeDictionary<Type, MethodInfo> _saverepcache = new SafeDictionary<Type, MethodInfo>();
+        private ConcurrentDictionary<Type, MethodInfo> _savecache = new ConcurrentDictionary<Type, MethodInfo>();
+        private ConcurrentDictionary<Type, MethodInfo> _saverepcache = new ConcurrentDictionary<Type, MethodInfo>();
         private FullTextIndex _fulltextindex;
         private CronDaemon _cron;
         private Replication.ReplicationServer _repserver;
@@ -1444,7 +1445,7 @@ namespace RaptorDB
                 return m;
 
             m = save.MakeGenericMethod(new Type[] { type });
-            _savecache.Add(type, m);
+            _savecache.TryAdd(type, m);
             return m;
         }
 
@@ -1455,7 +1456,7 @@ namespace RaptorDB
                 return m;
 
             m = saverep.MakeGenericMethod(new Type[] { type });
-            _saverepcache.Add(type, m);
+            _saverepcache.TryAdd(type, m);
             return m;
         }
 

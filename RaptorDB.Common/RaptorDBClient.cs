@@ -4,6 +4,7 @@ using System.Text;
 using RaptorDB.Common;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Collections.Concurrent;
 
 namespace RaptorDB
 {
@@ -157,7 +158,7 @@ namespace RaptorDB
         private NetworkClient _client;
         private string _username;
         private string _password;
-        private SafeDictionary<string, bool> _assembly = new SafeDictionary<string, bool>();
+        private ConcurrentDictionary<string, bool> _assembly = new ConcurrentDictionary<string, bool>();
 
         /// <summary>
         /// Save a document to RaptorDB
@@ -432,11 +433,11 @@ namespace RaptorDB
                     if (r.Data != null)
                     {
                         var a = Assembly.Load((byte[])r.Data);
-                        _assembly.Add(viewname, true);
+                        _assembly.TryAdd(viewname, true);
                     }
                 }
                 else
-                    _assembly.Add(viewname, true);
+                    _assembly.TryAdd(viewname, true);
             }
             Packet p = CreatePacket();
             p.Command = "" + COMMANDS.QueryStr;

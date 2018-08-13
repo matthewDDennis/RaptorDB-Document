@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Threading;
@@ -21,17 +22,17 @@ namespace RaptorDB.Views
         private ILog _log = LogManager.GetLogger(typeof(ViewManager));
         private string _Path = "";
         // list of views
-        private SafeDictionary<string, ViewHandler> _views = new SafeDictionary<string, ViewHandler>();
+        private ConcurrentDictionary<string, ViewHandler> _views = new ConcurrentDictionary<string, ViewHandler>();
         // primary view list
-        private SafeDictionary<Type, string> _primaryView = new SafeDictionary<Type, string>();
+        private ConcurrentDictionary<Type, string> _primaryView = new ConcurrentDictionary<Type, string>();
         // like primary view list 
-        private SafeDictionary<Type, string> _otherViewTypes = new SafeDictionary<Type, string>();
+        private ConcurrentDictionary<Type, string> _otherViewTypes = new ConcurrentDictionary<Type, string>();
         // consistent views
-        private SafeDictionary<Type, List<string>> _consistentViews = new SafeDictionary<Type, List<string>>();
+        private ConcurrentDictionary<Type, List<string>> _consistentViews = new ConcurrentDictionary<Type, List<string>>();
         // other views type->list of view names to call
-        private SafeDictionary<Type, List<string>> _otherViews = new SafeDictionary<Type, List<string>>();
+        private ConcurrentDictionary<Type, List<string>> _otherViews = new ConcurrentDictionary<Type, List<string>>();
         private TaskQueue _que = new TaskQueue();
-        private SafeDictionary<int, bool> _transactions = new SafeDictionary<int, bool>();
+        private ConcurrentDictionary<int, bool> _transactions = new ConcurrentDictionary<int, bool>();
         internal ITokenizer _tokenizer;
 
         internal int Count(string viewname, string filter)
@@ -156,16 +157,16 @@ namespace RaptorDB.Views
             {
                 vh = new ViewHandler(_Path, this);
                 vh.SetView(view, _objectStore);
-                _views.Add(view.Name.ToLower(), vh);
-                _otherViewTypes.Add(view.GetType(), view.Name.ToLower());
+                _views.TryAdd(view.Name.ToLower(), vh);
+                _otherViewTypes.TryAdd(view.GetType(), view.Name.ToLower());
 
                 // add view schema mapping 
-                _otherViewTypes.Add(view.Schema, view.Name.ToLower());
+                _otherViewTypes.TryAdd(view.Schema, view.Name.ToLower());
 
                 Type basetype = vh.GetFireOnType();
                 if (view.isPrimaryList)
                 {
-                    _primaryView.Add(basetype, view.Name.ToLower());
+                    _primaryView.TryAdd(basetype, view.Name.ToLower());
                 }
                 else
                 {
@@ -203,7 +204,7 @@ namespace RaptorDB.Views
             return list;
         }
 
-        private void AddToViewList(SafeDictionary<Type, List<string>> diclist, Type fireontype, string viewname)
+        private void AddToViewList(ConcurrentDictionary<Type, List<string>> diclist, Type fireontype, string viewname)
         {
             //foreach (var tn in view.FireOnTypes)
             {
@@ -215,7 +216,7 @@ namespace RaptorDB.Views
                 {
                     list = new List<string>();
                     list.Add(viewname);
-                    diclist.Add(t, list);
+                    diclist.TryAdd(t, list);
                 }
             }
         }
@@ -234,7 +235,7 @@ namespace RaptorDB.Views
             foreach (var v in _views)
                 v.Value.RollBack(ID);
 
-            _transactions.Remove(ID);
+            _transactions.TryRemove(ID, out bool value);
         }
 
         internal void Commit(int ID)
@@ -244,7 +245,7 @@ namespace RaptorDB.Views
             foreach (var v in _views)
                 v.Value.Commit(ID);
 
-            _transactions.Remove(ID);
+            _transactions.TryRemove(ID, out bool value);
         }
 
         internal bool isTransaction(string viewname)
@@ -260,7 +261,7 @@ namespace RaptorDB.Views
 
         internal void StartTransaction()
         {
-            _transactions.Add(Thread.CurrentThread.ManagedThreadId, false);
+            _transactions.TryAdd(Thread.CurrentThread.ManagedThreadId, false);
         }
 
         internal Result<T> Query<T>(Expression<Predicate<T>> filter, int start, int count)
